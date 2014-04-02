@@ -1,0 +1,134 @@
+<?php
+
+/**
+ * @file
+ * Adds video playcount and exposes to views.
+ */
+
+/**
+ * Implements hook_views_api()
+ */
+function my_video_views_api() {
+  return array(
+    'api' => 3,
+  );
+}
+
+
+/**
+ * Implements hook_views_data()
+ * Exposes our playcount table to views
+ */
+function my_video_views_data() {
+  // Basic table information.
+  $data['my_video_playcount'] = array(
+    'table' => array(
+      'group' => t('File statistics'),
+      'join' => array(
+        'file_managed' => array(
+          'left_field' => 'fid',
+          'field' => 'fid',
+        ),
+      ),
+    ),
+    'playcount' => array(
+      'title' => t('Playcount'),
+      'help' => t('The total number of times the video has been started.'),
+
+      'field' => array(
+        'handler' => 'views_handler_field_numeric',
+        'click sortable' => TRUE,
+      ),
+      'filter' => array(
+        'handler' => 'views_handler_filter_numeric',
+      ),
+      'sort' => array(
+        'handler' => 'views_handler_sort',
+      ),
+    ),
+  );
+
+  return $data;
+}
+
+/**
+ * @todo Add your code to insert and update playcounts into the
+ * {my_video_playcount} table.
+ *
+ * This is one example of extracting this data from Google Analytics Events. If
+ * you want to use a similar method, you will need to make sure playcounts are
+ * being tracked in your video player and adjust the code below to match the
+ * eventCategory and eventLabel.
+ *
+ * ---- Code below is just for illustration purposes only! ----
+ */
+
+/**
+ * Implements hook_cron()
+ * Pulls in playcount information from Google Analytics
+ */
+function my_video_cron() {
+  $my_video_stats_timestamp = variable_get('my_video_stats_timestamp', 0);
+
+  // Run no more then once a day
+  if ((REQUEST_TIME - $my_video_stats_timestamp) >= 86400) {
+    _my_video_playcount_report();
+    variable_set('my_video_stats_timestamp', REQUEST_TIME);
+  }
+}
+
+/**
+ * Helper function pulls report from Google analytics.
+ */
+function _my_video_playcount_report() {
+  // Only load 1 day at a time
+  $params = array(
+    'metrics' => array('ga:totalEvents'),
+    'dimensions' => array('ga:eventLabel'),
+    'filters' => 'ga:eventCategory==Video Plays',
+    'start_date' => strtotime('yesterday'),
+  );
+
+  $feed = google_analytics_api_report_data($params, array('refresh' => TRUE));
+  if ($feed->error) {
+    watchdog('my_video', 'Report failed @error', array('@error' => $feed->error));
+    return FALSE;
+  }
+
+  watchdog('my_video', 'Report data: @results', array('@results' => print_r($feed->results, 1)));
+  $fids = array();
+  foreach ($feed->results as $row) {
+    // We need to look up the fid by the path
+    $fid = substr($row['eventLabel'], strpos($row['eventLabel'], '#clip=') + 6);
+    $fids[] = $fid; // Store array of fid's so we can update them in mass
+    $update_count[$fid] = $row['totalEvents'];
+  }
+  // Make sure we have at least one fid before running our queries
+  if (!empty($fids)) {
+    // First get playcounts by fid
+    $query = db_select('my_video_playcount', 'p')
+      ->fields('p', array('fid', 'playcount'))
+      ->condition('fid', $fids, 'IN');
+    $rows = $query->execute()->fetchAllAssoc('fid');
+    // Then we need to update our rows with new values
+    foreach ($fids as $fid) {
+      // Rows that are in the database already
+      if (isset($rows[$fid])) {
+        $rows[$fid]->playcount += $update_count[$fid];
+      }
+      // New rows
+      else {
+        $rows[$fid]->fid = $fid;
+        $rows[$fid]->playcount = $update_count[$fid];
+      }
+      db_merge('my_video_playcount')
+        ->key(array('fid' => $rows[$fid]->fid))
+        ->fields(array(
+          'playcount' => $rows[$fid]->playcount,
+        ))
+        ->execute();
+    }
+  }
+
+  return TRUE;
+}

@@ -1,0 +1,37 @@
+<?php
+
+/**
+ * Implements hook_schema()
+ */
+function my_video_schema() {
+  $schema['my_video_playcount'] = array(
+    'description' => 'Stores playcount data for videos',
+    'fields' => array(
+      'fid' => array(
+        'description' => 'The primary identifier for a file.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+      ),
+      'playcount' => array(
+        'description' => 'The current playcount for the video.',
+        'type' => 'int',
+        'unsigned' => TRUE,
+        'not null' => TRUE,
+        'default' => 0,
+      ),
+    ),
+    'indexes' => array(
+      'playcount' => array('playcount'),
+    ),
+    'primary key' => array('fid'),
+    'foreign keys' => array(
+      'file_managed' => array(
+        'table' => 'file_managed',
+        'columns' => array('fid' => 'fid'),
+      ),
+    ),
+  );
+
+  return $schema;
+}

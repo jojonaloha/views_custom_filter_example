@@ -1,0 +1,4 @@
+name = My Video Stats Module
+description = Provides video playcount to views
+package = Media
+core = 7.x
